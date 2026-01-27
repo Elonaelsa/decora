@@ -1,16 +1,32 @@
-# decora_app
+# AI-Powered Interior Design & Furniture Booking System 
 
-A new Flutter project.
+# Project Description
+This is a futuristic platform that allows users to create customized interior designs using textual prompts (e.g., "modern minimalistic living room"). The system generates 2D/3D layouts where furniture items are linked to real-time inventory for direct booking and purchase. It features interactive drag-and-drop modifications, AI-driven space optimization, and AR functionality for real-world visualization.
 
-## Getting Started
+Technologies Used
 
-This project is a starting point for a Flutter application.
+Front-End: Flutter (Cross-platform mobile app) , React.js, and Three.js.
+Back-End: Python Django.
+Database: Firebase (User data, products, cart, and receipts).
+AI & ML: GPT for prompt understanding and DALL·E for design generation.
+Payments: Razorpay for secure digital transactions.
+AR Integration: AR.js / Unity AR.
 
-A few resources to get you started if this is your first Flutter project:
+Project Modules
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+User Module: Registration, login, and style preference input.
+AI Design Module: Processes text prompts to generate layouts.
+Online Shopping Module: 2D/3D room viewing and drag-and-drop editing.
+Furniture & Inventory: Displaying availability, pricing, and details.
+Booking & Payment: Cart management and secure checkout.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+
+# Admin Module: Managing furniture stock, pricing, and viewing user bookings.
+
+# Student Details
+Name: ELONA ELSA THOMAS 
+Roll No: MGP24MCA-2035 
+College: SAINTGITS COLLEGE OF ENGINEERING 
+
+Project Guide
+Name: MS. ANITHAMOL K.P
