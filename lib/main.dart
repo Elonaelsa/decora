@@ -1,8 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart'; // Added for Firebase
+import 'firebase_options.dart'; // Added for Firebase
 import 'signin.dart';
 import 'signup.dart';
 
-void main() {
+// Updated main to be async for Firebase initialization
+void main() async {
+  // 1. Ensure Flutter is ready
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // 2. Initialize Firebase with your project options
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(const DecoRaApp());
 }
 

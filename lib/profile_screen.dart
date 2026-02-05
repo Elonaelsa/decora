@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Added for database access
 import 'scan.dart';
 import 'ai_design.dart';
 import 'shop_furniture.dart';
+import 'signin.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -11,7 +14,56 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  int _selectedIndex = 4; // Profile is index 4
+  int _selectedIndex = 4;
+  
+  // Dynamic User Data Variables
+  String _userName = "Loading...";
+  String _userEmail = "...";
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserData(); // Fetch data when screen loads
+  }
+
+  // Fetch current user details from Firestore
+  Future<void> _fetchUserData() async {
+    try {
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        DocumentSnapshot userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+
+        if (userDoc.exists && mounted) {
+          setState(() {
+            _userName = userDoc['name'] ?? "User";
+            _userEmail = userDoc['email'] ?? user.email ?? "No Email";
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching user data: $e");
+    }
+  }
+
+  Future<void> _handleLogout() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context, 
+          MaterialPageRoute(builder: (context) => const SignInScreen()), 
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Logout failed: $e"), backgroundColor: Colors.red),
+      );
+    }
+  }
 
   void _onItemTapped(int index) {
     if (index == _selectedIndex) return;
@@ -39,7 +91,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
-            // --- User Info Card ---
+            // --- User Info Card (NOW DYNAMIC) ---
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
@@ -63,8 +115,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("elonaelsa15", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                        const Text("elonaelsa15@gmail.com", style: TextStyle(color: Colors.black45, fontSize: 13)),
+                        // Dynamic text linked to Firestore
+                        Text(_userName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                        Text(_userEmail, style: const TextStyle(color: Colors.black45, fontSize: 13)),
                         const SizedBox(height: 12),
                         Row(
                           children: [
@@ -137,9 +190,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 32),
 
-            // --- Log Out Button ---
             TextButton.icon(
-              onPressed: () {},
+              onPressed: _handleLogout,
               icon: const Icon(Icons.logout, color: Color(0xFFD29E86), size: 20),
               label: const Text("Log Out", 
                 style: TextStyle(color: Color(0xFFD29E86), fontWeight: FontWeight.bold, fontSize: 16)),

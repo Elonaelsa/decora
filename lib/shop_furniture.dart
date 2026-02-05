@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Database connection
 import 'scan.dart';
 import 'ai_design.dart';
 import 'profile_screen.dart';
-import 'cart_screen.dart'; // 1. Ensure you have created this file
+import 'cart_screen.dart';
 
 // --- GLOBAL CART LIST ---
 List<Map<String, dynamic>> globalCartItems = [];
@@ -15,20 +16,11 @@ class ShopFurnitureScreen extends StatefulWidget {
 }
 
 class _ShopFurnitureScreenState extends State<ShopFurnitureScreen> {
-  int _selectedIndex = 3; // Shop is index 3
+  int _selectedIndex = 3; 
   String _selectedCategory = "All";
 
+  // Categories match the Admin Panel options
   final List<String> _categories = ["All", "Sofas", "Chairs", "Tables", "Beds", "Storage", "Décor"];
-
-  // --- PRODUCTS WITH UNIQUE IDS AND SHOP NAMES ---
-  final List<Map<String, dynamic>> _products = [
-    {'id': 'p1', 'name': 'Velvet Cloud Sofa', 'shop': 'Luxe Home', 'price': 1299, 'color': const Color(0xFFF3E5F5), 'outOfStock': false},
-    {'id': 'p2', 'name': 'Nordic Oak Chair', 'shop': 'EcoWood', 'price': 449, 'color': const Color(0xFFE0ECE4), 'outOfStock': false},
-    {'id': 'p3', 'name': 'Marble Coffee Table', 'shop': 'Modernist', 'price': 699, 'color': const Color(0xFFE3F2FD), 'outOfStock': true},
-    {'id': 'p4', 'name': 'Linen Platform Bed', 'shop': 'DreamRest', 'price': 1899, 'color': const Color(0xFFF1F4F1), 'outOfStock': false},
-    {'id': 'p5', 'name': 'Rattan Storage Basket', 'shop': 'IslandVibe', 'price': 89, 'color': const Color(0xFFFFF3E0), 'outOfStock': false},
-    {'id': 'p6', 'name': 'Ceramic Vase Set', 'shop': 'ArtisanCo', 'price': 129, 'color': const Color(0xFFF0F0F0), 'outOfStock': false},
-  ];
 
   void _onItemTapped(int index) {
     if (index == _selectedIndex) return;
@@ -135,25 +127,56 @@ class _ShopFurnitureScreenState extends State<ShopFurnitureScreen> {
                 ),
               ),
 
+              // --- FILTERED FIRESTORE STREAM ---
               Expanded(
-                child: GridView.builder(
-                  padding: EdgeInsets.symmetric(horizontal: isWeb ? 100 : 20, vertical: 20),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: isWeb ? 2 : 2, 
-                    childAspectRatio: isWeb ? 1.7 : 0.72, 
-                    crossAxisSpacing: 20,
-                    mainAxisSpacing: 20,
-                  ),
-                  itemCount: _products.length,
-                  itemBuilder: (context, index) {
-                    final product = _products[index];
-                    int currentCount = globalCartItems.where((item) => item['id'] == product['id']).length;
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: _selectedCategory == "All" 
+                      ? FirebaseFirestore.instance.collection('furniture').snapshots()
+                      : FirebaseFirestore.instance.collection('furniture')
+                          .where('category', isEqualTo: _selectedCategory)
+                          .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                      return const Center(child: Text("No furniture available in this category."));
+                    }
 
-                    return _ShopHoverCard(
-                      product: product, 
-                      count: currentCount,
-                      onAdd: () => _updateCart(product, 1),
-                      onRemove: () => _updateCart(product, -1),
+                    final furnitureDocs = snapshot.data!.docs;
+
+                    return GridView.builder(
+                      padding: EdgeInsets.symmetric(horizontal: isWeb ? 100 : 20, vertical: 20),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: isWeb ? 2 : 2, 
+                        childAspectRatio: isWeb ? 1.7 : 0.72, 
+                        crossAxisSpacing: 20,
+                        mainAxisSpacing: 20,
+                      ),
+                      itemCount: furnitureDocs.length,
+                      itemBuilder: (context, index) {
+                        var data = furnitureDocs[index].data() as Map<String, dynamic>;
+                        
+                        final product = {
+                          'id': furnitureDocs[index].id,
+                          'name': data['name'] ?? 'Furniture Item',
+                          // FIX: Matches 'shopName' saved by Admin Panel
+                          'shop': data['shopName'] ?? 'Official Store',
+                          'imageUrl': data['imageUrl'] ?? '', // Added imageUrl
+                          'price': int.tryParse(data['price'].toString()) ?? 0,
+                          'color': const Color(0xFFF1F4F1), 
+                          'outOfStock': data['outOfStock'] ?? false,
+                        };
+
+                        int currentCount = globalCartItems.where((item) => item['id'] == product['id']).length;
+
+                        return _ShopHoverCard(
+                          product: product, 
+                          count: currentCount,
+                          onAdd: () => _updateCart(product, 1),
+                          onRemove: () => _updateCart(product, -1),
+                        );
+                      },
                     );
                   },
                 ),
@@ -238,7 +261,24 @@ class _ShopHoverCardState extends State<_ShopHoverCard> {
               Expanded(
                 child: Stack(
                   children: [
-                    Container(decoration: BoxDecoration(color: widget.product['color'], borderRadius: const BorderRadius.vertical(top: Radius.circular(24)))),
+                    // FIX: Added Image.network to display the uploaded image URL
+                    Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: widget.product['color'], 
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(24))
+                      ),
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                        child: widget.product['imageUrl'] != ""
+                          ? Image.network(
+                              widget.product['imageUrl'],
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.grey),
+                            )
+                          : const Icon(Icons.chair, color: Color(0xFFD29E86), size: 40),
+                      ),
+                    ),
                     Positioned(top: 12, right: 12, child: Container(padding: const EdgeInsets.all(8), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: const Icon(Icons.favorite_border, size: 18))),
                     if (widget.product['outOfStock'])
                       Positioned(bottom: 12, left: 12, child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), decoration: BoxDecoration(color: Colors.white.withOpacity(0.9), borderRadius: BorderRadius.circular(10)), child: const Text("Out of stock", style: TextStyle(fontSize: 10, color: Colors.black54, fontWeight: FontWeight.bold)))),
