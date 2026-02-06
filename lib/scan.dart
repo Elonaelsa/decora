@@ -1,7 +1,120 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // REQUIRED for kIsWeb
+import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:io';
+
 import 'ai_design.dart';
 import 'shop_furniture.dart';
 import 'profile_screen.dart';
+import 'camera_screen.dart';
+import 'design_result_screen.dart';
+
+// --- UPDATED: Cross-Platform Prompt Page ---
+class PromptPage extends StatelessWidget {
+  final String imagePath;
+  const PromptPage({super.key, required this.imagePath});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Design Prompt"),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.black,
+      ),
+      body: Column(
+        children: [
+          // Logic to handle Web blobs vs Mobile file paths
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                  )
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: kIsWeb
+                  ? Image.network(imagePath, fit: BoxFit.cover, width: double.infinity)
+                  : Image.file(File(imagePath), fit: BoxFit.cover, width: double.infinity),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: "Enter design style (e.g., Modern, Scandi)...",
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide.none,
+                ),
+                prefixIcon: const Icon(Icons.auto_awesome, color: Color(0xFFD29E86)),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: SizedBox(
+              width: double.infinity,
+              height: 55,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD29E86),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                ),
+                onPressed: () async {
+                  // Simulate AI Generation
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (context) => const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(color: Colors.white),
+                          SizedBox(height: 16),
+                          Text("Generating 3D Model...", style: TextStyle(color: Colors.white, fontSize: 16, decoration: TextDecoration.none))
+                        ],
+                      ),
+                    ),
+                  );
+
+                  await Future.delayed(const Duration(seconds: 3)); // Mock delay
+
+                  if (context.mounted) {
+                    Navigator.pop(context); // Close dialog
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => DesignResultScreen(
+                          originalImagePath: imagePath,
+                          prompt: "Modern Design", // Get from TextField in a real implementation
+                        ),
+                      ),
+                    );
+                  }
+                },
+                child: const Text(
+                  "Generate 3D Model",
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+}
 
 class ScanRoomScreen extends StatefulWidget {
   const ScanRoomScreen({super.key});
@@ -12,11 +125,91 @@ class ScanRoomScreen extends StatefulWidget {
 
 class _ScanRoomScreenState extends State<ScanRoomScreen> {
   int _selectedIndex = 1;
+  final ImagePicker _picker = ImagePicker();
+
+  // --- REFINED: Opens Camera or Gallery and Navigates ---
+  Future<void> _handleImageAction(ImageSource source) async {
+    // Custom handling for Camera (Web & Mobile) to avoid permission issues and ensure direct camera access
+    if (source == ImageSource.camera) {
+      if (!kIsWeb) {
+        // Mobile Permission Check
+        var status = await Permission.camera.request();
+        if (status.isPermanentlyDenied) {
+          if (mounted) {
+            showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text("Camera Permission Required"),
+                content: const Text("Camera access is permanently denied. Please enable it in system settings to scan the room."),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+                  TextButton(onPressed: () { Navigator.pop(ctx); openAppSettings(); }, child: const Text("Open Settings")),
+                ],
+              ),
+            );
+          }
+           return;
+        }
+        if (!status.isGranted) return;
+      }
+
+      // Use the custom CameraScreen
+      try {
+        final XFile? capturedImage = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const CameraScreen()),
+        );
+
+        if (capturedImage != null && mounted) {
+           Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PromptPage(imagePath: capturedImage.path),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint("Error opening camera screen: $e");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not open camera.")));
+        }
+      }
+      return;
+    }
+
+    // Default handling for Gallery (Upload)
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: source,
+        imageQuality: 85,
+      );
+
+      if (pickedFile != null) {
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PromptPage(imagePath: pickedFile.path),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error capturing image: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(kIsWeb
+              ? "Failed to access gallery." 
+              : "Failed to pick image. Please try again."),
+          ),
+        );
+      }
+    }
+  }
 
   void _onItemTapped(int index) {
     if (index == _selectedIndex) return;
     
-    // Using pushReplacement for smoother transitions between main modules
     if (index == 0) {
       Navigator.of(context).popUntil((route) => route.isFirst);
     } else if (index == 2) {
@@ -61,7 +254,7 @@ class _ScanRoomScreenState extends State<ScanRoomScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // --- 1. Camera Viewfinder Area ---
+                // Visual Viewfinder
                 Container(
                   width: double.infinity,
                   height: isWeb ? 450 : 320,
@@ -100,12 +293,12 @@ class _ScanRoomScreenState extends State<ScanRoomScreen> {
                 ),
                 const SizedBox(height: 30),
 
-                // --- 2. Action Buttons (Responsive Row/Column) ---
+                // Action Buttons
                 Row(
                   children: [
                     Expanded(
                       child: _HoverableActionCard(
-                        onTap: () {}, // Action for Camera
+                        onTap: () => _handleImageAction(ImageSource.camera),
                         child: _buildActionCard(
                           title: "Take Photo",
                           subtitle: "Capture room",
@@ -118,7 +311,7 @@ class _ScanRoomScreenState extends State<ScanRoomScreen> {
                     const SizedBox(width: 16),
                     Expanded(
                       child: _HoverableActionCard(
-                        onTap: () {}, // Action for Gallery
+                        onTap: () => _handleImageAction(ImageSource.gallery),
                         child: _buildActionCard(
                           title: "Upload",
                           subtitle: "From gallery",
@@ -132,7 +325,6 @@ class _ScanRoomScreenState extends State<ScanRoomScreen> {
                 ),
                 const SizedBox(height: 40),
 
-                // --- 3. Tips Section ---
                 const Text(
                   "Tips for best results",
                   style: TextStyle(
@@ -143,7 +335,6 @@ class _ScanRoomScreenState extends State<ScanRoomScreen> {
                 ),
                 const SizedBox(height: 20),
                 
-                // Optimized Tips Grid for Web
                 isWeb 
                 ? GridView.count(
                     shrinkWrap: true,

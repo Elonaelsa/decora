@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'scan.dart';
 import 'shop_furniture.dart';
 import 'profile_screen.dart'; // Ensure this is imported
+import 'design_result_screen.dart';
 
 class AIDesignScreen extends StatefulWidget {
   const AIDesignScreen({super.key});
@@ -154,11 +155,43 @@ class _AIDesignScreenState extends State<AIDesignScreen> {
                   child: MouseRegion(
                     cursor: _isReadyToGenerate ? SystemMouseCursors.click : SystemMouseCursors.basic,
                     child: ElevatedButton.icon(
-                      onPressed: _isReadyToGenerate ? () {
+                      onPressed: _isReadyToGenerate ? () async {
                         // Success Feedback
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text("AI is designing your room...")),
                         );
+                        
+                         // Simulate AI Generation
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (context) => const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(color: Colors.white),
+                                SizedBox(height: 16),
+                                Text("Creating your dream room...", style: TextStyle(color: Colors.white, fontSize: 16, decoration: TextDecoration.none))
+                              ],
+                            ),
+                          ),
+                        );
+
+                        await Future.delayed(const Duration(seconds: 3)); // Mock delay
+
+                        if (context.mounted) {
+                          Navigator.pop(context); // Close dialog
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => DesignResultScreen(
+                                prompt: _visionController.text,
+                                style: _selectedStyle,
+                                // No original image for this flow, user just described it
+                              ),
+                            ),
+                          );
+                        }
                       } : null, 
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _isReadyToGenerate 
