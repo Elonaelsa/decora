@@ -1,8 +1,16 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart'; // For kIsWeb
 import 'scan.dart';
 import 'shop_furniture.dart';
 import 'profile_screen.dart'; // Ensure this is imported
 import 'design_result_screen.dart';
+import 'view_3d_model.dart';
+import 'camera_screen.dart'; // Added for interactive camera
+import 'services/ai_service.dart';
+import 'services/gemini_service.dart';
+
 
 class AIDesignScreen extends StatefulWidget {
   const AIDesignScreen({super.key});
@@ -11,13 +19,16 @@ class AIDesignScreen extends StatefulWidget {
   State<AIDesignScreen> createState() => _AIDesignScreenState();
 }
 
+
 class _AIDesignScreenState extends State<AIDesignScreen> {
   int _selectedIndex = 2;
   String? _selectedStyle;
+  List<XFile> _selectedImages = []; // Changed to List for multi-view
   final TextEditingController _visionController = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
 
-  // Logic: Button is fully enabled only when style is picked AND vision is typed/selected
-  bool get _isReadyToGenerate => _selectedStyle != null && _visionController.text.trim().isNotEmpty;
+  // Logic: Ready if style is picked AND (vision is typed OR at least one image is selected)
+  bool get _isReadyToGenerate => _selectedStyle != null && (_visionController.text.trim().isNotEmpty || _selectedImages.isNotEmpty);
 
   final List<Map<String, String>> _styles = [
     {'name': 'Modern Minimalist', 'icon': '🏢'},
@@ -45,7 +56,77 @@ class _AIDesignScreenState extends State<AIDesignScreen> {
     if (index == 0) Navigator.of(context).popUntil((route) => route.isFirst);
     if (index == 1) Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const ScanRoomScreen()));
     if (index == 3) Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const ShopFurnitureScreen()));
-    if (index == 4) Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const ProfileScreen())); // Added Profile Navigation
+    if (index == 4) Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const ProfileScreen())); 
+  }
+
+  Future<void> _pickImages() async {
+    showModalBottomSheet(
+      context: context, 
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Select Multiple from Gallery'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _processMultiSelection();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera),
+                title: const Text('Take New Photo (Add to set)'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _processSingleSelection(ImageSource.camera);
+                },
+              ),
+            ],
+          ),
+        );
+      }
+    );
+  }
+
+  Future<void> _processMultiSelection() async {
+    try {
+      final List<XFile> picked = await _picker.pickMultiImage();
+      if (picked.isNotEmpty) {
+        setState(() {
+          _selectedImages.addAll(picked);
+        });
+      }
+    } catch (e) {
+      debugPrint("Error picking images: $e");
+    }
+  }
+
+  Future<void> _processSingleSelection(ImageSource source) async {
+    try {
+      XFile? picked;
+      
+      if (source == ImageSource.camera) {
+        // Navigate to the interactive Camera Screen
+        picked = await Navigator.push<XFile>(
+          context,
+          MaterialPageRoute(builder: (context) => const CameraScreen()),
+        );
+      } else {
+        // Use default Gallery picker
+        picked = await _picker.pickImage(source: source);
+      }
+
+      if (picked != null) {
+        final XFile image = picked;
+        setState(() {
+          _selectedImages.add(image);
+        });
+      }
+    } catch (e) {
+      debugPrint("Error picking image: $e");
+    }
   }
 
   @override
@@ -106,15 +187,151 @@ class _AIDesignScreenState extends State<AIDesignScreen> {
                 ),
                 const SizedBox(height: 32),
 
-                const Text("Your Vision", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Georgia')),
+                // --- 1. MULTI-IMAGE UPLOAD ---
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("1. Upload Multi-View (Scanning)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Georgia')),
+                    if (_selectedImages.isNotEmpty)
+                      TextButton(
+                        onPressed: () => setState(() => _selectedImages.clear()),
+                        child: const Text("Clear All", style: TextStyle(color: Colors.red)),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text("Upload photos from different directions (Front, Side, Back) for a full 3D reconstruction.", style: TextStyle(fontSize: 13, color: Colors.black54)),
+                const SizedBox(height: 12),
+                
+                if (_selectedImages.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12.0),
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (context) => const Center(child: CircularProgressIndicator(color: Colors.white)),
+                      );
+                      String analysis = await GeminiService.analyzeRoom(_selectedImages.first);
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text("Gemini Room Analysis"),
+                            content: SingleChildScrollView(child: Text(analysis)),
+                            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cool!"))],
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.psychology, size: 18),
+                    label: const Text("Analyze with Gemini"),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.blueAccent,
+                      side: const BorderSide(color: Colors.blueAccent),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                SizedBox(
+                  height: 160,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _selectedImages.length + 1,
+                    itemBuilder: (context, index) {
+                      if (index == _selectedImages.length) {
+                        // Add Button
+                        return GestureDetector(
+                          onTap: _pickImages,
+                          child: Container(
+                            width: 120,
+                            margin: const EdgeInsets.only(right: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: const Color(0xFFE0E0E0), style: BorderStyle.solid),
+                            ),
+                            child: const Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.add_a_photo_outlined, size: 30, color: Colors.grey),
+                                SizedBox(height: 8),
+                                Text("Add Photo", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+
+                      // Image Thumbnail
+                      return Stack(
+                        children: [
+                          Container(
+                            width: 120,
+                            margin: const EdgeInsets.only(right: 12),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(20),
+                              image: DecorationImage(
+                                image: kIsWeb 
+                                  ? NetworkImage(_selectedImages[index].path)
+                                  : FileImage(File(_selectedImages[index].path)) as ImageProvider,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 5,
+                            right: 15,
+                            child: GestureDetector(
+                              onTap: () => setState(() => _selectedImages.removeAt(index)),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                                child: const Icon(Icons.close, size: 16, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 32),
+
+                // --- 2. TEXT PROMPT ---
+                const Text("2. Your Vision", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Georgia')),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _visionController,
                   maxLines: isWeb ? 3 : 5,
                   decoration: InputDecoration(
-                    hintText: "Describe your ideal room... e.g., 'A cozy living room with warm earth tones, a plush velvet sofa, and plenty of natural light'",
+                    hintText: "Describe your ideal room...",
                     hintStyle: const TextStyle(fontSize: 14, color: Colors.black26),
-                    suffixIcon: const Icon(Icons.auto_awesome, size: 20, color: Colors.black26),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.auto_awesome, color: Colors.blueAccent),
+                      onPressed: () async {
+                        if (_visionController.text.isEmpty || _selectedStyle == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select a style and type something first!")));
+                          return;
+                        }
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (context) => const Center(child: CircularProgressIndicator(color: Colors.white)),
+                        );
+                        String enhanced = await GeminiService.enhancePrompt(_visionController.text, _selectedStyle!);
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          setState(() => _visionController.text = enhanced);
+                        }
+                      },
+                      tooltip: "Magic Enhance with Gemini",
+                    ),
                     filled: true,
                     fillColor: Colors.white,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Color(0xFFE0E0E0))),
@@ -122,7 +339,8 @@ class _AIDesignScreenState extends State<AIDesignScreen> {
                 ),
                 const SizedBox(height: 32),
 
-                const Text("Or Choose a Style", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Georgia')),
+                // --- 3. STYLE SELECTION ---
+                const Text("3. Choose a Style", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Georgia')),
                 const SizedBox(height: 16),
                 
                 GridView.builder(
@@ -177,20 +395,45 @@ class _AIDesignScreenState extends State<AIDesignScreen> {
                           ),
                         );
 
-                        await Future.delayed(const Duration(seconds: 3)); // Mock delay
+                          List<String> results = [];
+                        
+                        // IF IMAGE EXISTS -> REDESIGN (Plan/Wall)
+                        if (_selectedImages.isNotEmpty) {
+                           results = await AIService.redesignRoom(
+                             imageFile: _selectedImages.first, // Uses first for redesign
+                             prompt: _visionController.text,
+                             roomType: "Room", 
+                             style: _selectedStyle!,
+                           );
+                        } else {
+                          // IF NO IMAGE -> TEXT GEN (Dream Room)
+                          results = await AIService.generateImageFromText(
+                            prompt: _visionController.text,
+                            style: _selectedStyle!
+                          );
+                        }
 
                         if (context.mounted) {
                           Navigator.pop(context); // Close dialog
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => DesignResultScreen(
-                                prompt: _visionController.text,
-                                style: _selectedStyle,
-                                // No original image for this flow, user just described it
+                          
+                          if (results.isNotEmpty) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => DesignResultScreen(
+                                  // Pass original only if we uploaded one
+                                  originalImagePath: _selectedImages.isNotEmpty ? _selectedImages.first.path : null, 
+                                  prompt: _visionController.text,
+                                  style: _selectedStyle,
+                                  generatedImageUrls: results,
+                                ),
                               ),
-                            ),
-                          );
+                            );
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Failed to generate design")),
+                            );
+                          }
                         }
                       } : null, 
                       style: ElevatedButton.styleFrom(
@@ -205,6 +448,149 @@ class _AIDesignScreenState extends State<AIDesignScreen> {
                       icon: Icon(Icons.auto_awesome, size: 20, 
                           color: _isReadyToGenerate ? Colors.white : Colors.black26),
                       label: const Text("Generate Design", style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // --- 3D MODEL BUTTON ---
+                if (_selectedImages.isNotEmpty)
+                SizedBox(
+                  width: double.infinity,
+                  height: 60,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (context) => const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(color: Colors.white),
+                              SizedBox(height: 16),
+                              Text("Reconstructing 3D model from multiple views...", 
+                                style: TextStyle(color: Colors.white, fontSize: 16, decoration: TextDecoration.none))
+                            ],
+                          ),
+                        ),
+                      );
+
+                      // NEW: Pass all images for multi-view reconstruction
+                      String? modelUrl = await AIService.generate3DFromMultiView(_selectedImages);
+                      
+                      if (context.mounted) {
+                        Navigator.pop(context); // Close loading
+                        if (modelUrl != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => View3DModelScreen(
+                                modelUrl: modelUrl,
+                                title: "Reconstructed 3D Room",
+                              ),
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Could not generate 3D model. Ensure photos are from different angles.")),
+                          );
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.threed_rotation, color: Color(0xFFB9A0B8)),
+                    label: const Text("Reconstruct Original (3D)", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFFB9A0B8), width: 2),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                // NEW: Redesign THEN View in 3D
+                if (_selectedImages.isNotEmpty && _selectedStyle != null)
+                SizedBox(
+                  width: double.infinity,
+                  height: 60,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (context) => const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(color: Colors.white),
+                              SizedBox(height: 16),
+                              Text("Step 1: Redesigning your room...", 
+                                style: TextStyle(color: Colors.white, fontSize: 16, decoration: TextDecoration.none)),
+                              SizedBox(height: 8),
+                              Text("(This will take a moment)", 
+                                style: TextStyle(color: Colors.white70, fontSize: 12, decoration: TextDecoration.none)),
+                            ],
+                          ),
+                        ),
+                      );
+
+                      // 1. First, redesign the room (2D)
+                      List<String> redesignedImages = await AIService.redesignRoom(
+                        imageFile: _selectedImages.first,
+                        prompt: _visionController.text,
+                        roomType: "Room",
+                        style: _selectedStyle!,
+                      );
+
+                      if (redesignedImages.isNotEmpty && context.mounted) {
+                        Navigator.pop(context); // Close Step 1 dialog
+                        
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (context) => const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(color: Colors.white),
+                                SizedBox(height: 16),
+                                Text("Step 2: Building your NEW 3D Room...", 
+                                  style: TextStyle(color: Colors.white, fontSize: 16, decoration: TextDecoration.none)),
+                              ],
+                            ),
+                          ),
+                        );
+
+                        // 2. Take the redesigned image URL and pass it to 3D service
+                        // We wrap the URL in an XFile-like object
+                        XFile redesignedFile = XFile(redesignedImages.first);
+                        String? modelUrl = await AIService.generate3DFromMultiView([redesignedFile], isFullRoom: true);
+
+                        if (context.mounted) {
+                          Navigator.pop(context); // Close Step 2 dialog
+                          if (modelUrl != null) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => View3DModelScreen(
+                                  modelUrl: modelUrl,
+                                  title: "Redesigned 3D Room",
+                                ),
+                              ),
+                            );
+                          }
+                        }
+                      } else if (context.mounted) {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Step 1 (Redesign) failed.")));
+                      }
+                    },
+                    icon: const Icon(Icons.auto_awesome, color: Colors.white),
+                    label: const Text("Redesign & View in 3D", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD29E86), // Premium Terra Cotta
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      elevation: 5,
                     ),
                   ),
                 ),

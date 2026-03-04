@@ -18,6 +18,7 @@ class ShopFurnitureScreen extends StatefulWidget {
 class _ShopFurnitureScreenState extends State<ShopFurnitureScreen> {
   int _selectedIndex = 3; 
   String _selectedCategory = "All";
+  String _searchQuery = "";
 
   // Categories match the Admin Panel options
   final List<String> _categories = ["All", "Sofas", "Chairs", "Tables", "Beds", "Storage", "Décor"];
@@ -86,8 +87,9 @@ class _ShopFurnitureScreenState extends State<ShopFurnitureScreen> {
                     borderRadius: BorderRadius.circular(15),
                     boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10)],
                   ),
-                  child: const TextField(
-                    decoration: InputDecoration(
+                  child: TextField(
+                    onChanged: (value) => setState(() => _searchQuery = value.toLowerCase()),
+                    decoration: const InputDecoration(
                       hintText: "Search furniture...",
                       prefixIcon: Icon(Icons.search, color: Colors.black26),
                       border: InputBorder.none,
@@ -143,7 +145,16 @@ class _ShopFurnitureScreenState extends State<ShopFurnitureScreen> {
                       return const Center(child: Text("No furniture available in this category."));
                     }
 
-                    final furnitureDocs = snapshot.data!.docs;
+                    // Filter by Search Query
+                    final furnitureDocs = snapshot.data!.docs.where((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final name = data['name']?.toString().toLowerCase() ?? "";
+                      return name.contains(_searchQuery);
+                    }).toList();
+
+                    if (furnitureDocs.isEmpty) {
+                       return const Center(child: Text("No items match your search."));
+                    }
 
                     return GridView.builder(
                       padding: EdgeInsets.symmetric(horizontal: isWeb ? 100 : 20, vertical: 20),
@@ -262,21 +273,24 @@ class _ShopHoverCardState extends State<_ShopHoverCard> {
                 child: Stack(
                   children: [
                     // FIX: Added Image.network to display the uploaded image URL
-                    Container(
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: widget.product['color'], 
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(24))
-                      ),
-                      child: ClipRRect(
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                        child: widget.product['imageUrl'] != ""
-                          ? Image.network(
-                              widget.product['imageUrl'],
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.grey),
-                            )
-                          : const Icon(Icons.chair, color: Color(0xFFD29E86), size: 40),
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: widget.product['color'], 
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(24))
+                        ),
+                        child: ClipRRect(
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                          child: widget.product['imageUrl'] != ""
+                            ? Image.network(
+                                widget.product['imageUrl'],
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) => const Center(
+                                  child: Icon(Icons.broken_image, color: Colors.grey)
+                                ),
+                              )
+                            : const Center(child: Icon(Icons.chair, color: Color(0xFFD29E86), size: 40)),
+                        ),
                       ),
                     ),
                     Positioned(top: 12, right: 12, child: Container(padding: const EdgeInsets.all(8), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: const Icon(Icons.favorite_border, size: 18))),

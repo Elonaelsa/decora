@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'; // REQUIRED for kIsWeb
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
 import 'dart:io';
 
 import 'ai_design.dart';
@@ -9,108 +10,399 @@ import 'shop_furniture.dart';
 import 'profile_screen.dart';
 import 'camera_screen.dart';
 import 'design_result_screen.dart';
+import 'view_3d_model.dart';
+import 'services/ai_service.dart';
 
-// --- UPDATED: Cross-Platform Prompt Page ---
-class PromptPage extends StatelessWidget {
-  final String imagePath;
-  const PromptPage({super.key, required this.imagePath});
+// --- UPDATED: Multi-Step Room Analysis Screen ---
+class RoomAnalysisScreen extends StatefulWidget {
+  final XFile initialImage;
+  const RoomAnalysisScreen({super.key, required this.initialImage});
+
+  @override
+  State<RoomAnalysisScreen> createState() => _RoomAnalysisScreenState();
+}
+
+class _RoomAnalysisScreenState extends State<RoomAnalysisScreen> {
+  // Data State
+  late List<XFile> _images; // Store XFiles not Strings
+  String? _selectedRoomType;
+  String? _selectedStyle;
+  final TextEditingController _promptController = TextEditingController();
+
+
+  @override
+  void initState() {
+    super.initState();
+    _images = [widget.initialImage]; // Start with the captured photo
+    _promptController.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _promptController.dispose();
+    super.dispose();
+  }
+
+  // Logic: Allow generation only if we have minimum data
+  bool get _canGenerate => 
+      _images.isNotEmpty && 
+      _selectedRoomType != null && 
+      _selectedStyle != null && 
+      _promptController.text.trim().isNotEmpty;
+
+  // Add more images to understand structure
+  Future<void> _addMorePhotos() async {
+    // 1. Permission Check (Mobile only)
+    if (!kIsWeb) {
+      var status = await Permission.camera.request();
+      if (status.isPermanentlyDenied) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text("Camera Permission Required"),
+              content: const Text("Camera access is permanently denied. Please enable it in system settings to add more photos."),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+                TextButton(onPressed: () { Navigator.pop(ctx); openAppSettings(); }, child: const Text("Open Settings")),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+      if (!status.isGranted) return;
+    }
+
+    // 2. Open Custom CameraScreen
+    try {
+      final XFile? image = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const CameraScreen()),
+      );
+      
+      if (image != null) {
+        setState(() {
+          _images.add(image);
+        });
+      }
+    } catch (e) {
+      debugPrint("Error opening camera: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not open camera.")));
+      }
+    }
+  }
+
+  Future<void> _generateDesign() async {
+    if (!_canGenerate) return;
+
+    // Show Loading Dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
+            Text("AI is redesigning your room...", style: TextStyle(color: Colors.white, fontSize: 16, decoration: TextDecoration.none)),
+            SizedBox(height: 8),
+            Text("This may take a few seconds...", style: TextStyle(color: Colors.white70, fontSize: 12, decoration: TextDecoration.none)),
+          ],
+        ),
+      ),
+    );
+
+    // Call Real AI Service
+    List<String> results = await AIService.redesignRoom(
+      imageFile: _images.first, 
+      prompt: _promptController.text,
+      roomType: _selectedRoomType!,
+      style: _selectedStyle!,
+    );
+
+    if (mounted) Navigator.pop(context); // Close dialog
+
+    if (results.isNotEmpty) { 
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DesignResultScreen(
+              originalImagePath: _images.first.path,
+              prompt: "Room: $_selectedRoomType. Style: $_selectedStyle. Prompt: ${_promptController.text}",
+              style: _selectedStyle,
+              generatedImageUrls: results,
+            ),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Generation failed. Please try again.")),
+        );
+      }
+    }
+  }
+
+  Future<void> _generate3DRoom() async {
+    if (_images.isEmpty) return;
+
+    // Show Loading Dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
+            Text("Building 3D Room Reconstruction...", style: TextStyle(color: Colors.white, fontSize: 16, decoration: TextDecoration.none)),
+            SizedBox(height: 8),
+            Text("This can take up to 2 minutes. Please wait...", style: TextStyle(color: Colors.white70, fontSize: 12, decoration: TextDecoration.none)),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // Call Real AI Service - Passing all images for multi-view if supported
+      final String? result = await AIService.generate3DFromMultiView(
+        _images,
+        isFullRoom: true, 
+      );
+
+      if (mounted) Navigator.pop(context); // Close dialog
+
+      if (result != null && result.isNotEmpty) {
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => View3DModelScreen(
+                modelUrl: result,
+                title: "Your 3D Room",
+              ),
+            ),
+          );
+        }
+      } else {
+        throw Exception("No 3D model path returned");
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close dialog if not already
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text("3D Generation Error"),
+            content: Text("Error: $e\n\nPlease ensure your computer at 192.168.220.14 is running and on the same Wi-Fi."),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Close")),
+              TextButton(
+                onPressed: () async {
+                   Navigator.pop(ctx);
+                   // Open Health Check
+                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Testing connection...")));
+                   try {
+                     final res = await http.get(Uri.parse("http://192.168.220.14:5000/api/health")).timeout(const Duration(seconds: 5));
+                     if (res.statusCode == 200) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Connection Success! Try again.")));
+                     }
+                   } catch (err) {
+                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Connection Failed: $err")));
+                   }
+                }, 
+                child: const Text("Test Connection")
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF9F7F2),
       appBar: AppBar(
-        title: const Text("Design Prompt"),
+        title: const Text("Room Analysis", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: Colors.black,
       ),
-      body: Column(
-        children: [
-          // Logic to handle Web blobs vs Mobile file paths
-          Expanded(
-            child: Container(
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 10,
-                  )
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: kIsWeb
-                  ? Image.network(imagePath, fit: BoxFit.cover, width: double.infinity)
-                  : Image.file(File(imagePath), fit: BoxFit.cover, width: double.infinity),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 1. IMAGES SECTION
+            const Text("1. Room Images", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12, top: 4),
+              child: Text("Add multiple angles to help AI understand the structure.", style: TextStyle(color: Colors.grey, fontSize: 13)),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: "Enter design style (e.g., Modern, Scandi)...",
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15),
-                  borderSide: BorderSide.none,
-                ),
-                prefixIcon: const Icon(Icons.auto_awesome, color: Color(0xFFD29E86)),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD29E86),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                ),
-                onPressed: () async {
-                  // Simulate AI Generation
-                  showDialog(
-                    context: context,
-                    barrierDismissible: false,
-                    builder: (context) => const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(color: Colors.white),
-                          SizedBox(height: 16),
-                          Text("Generating 3D Model...", style: TextStyle(color: Colors.white, fontSize: 16, decoration: TextDecoration.none))
-                        ],
-                      ),
-                    ),
-                  );
-
-                  await Future.delayed(const Duration(seconds: 3)); // Mock delay
-
-                  if (context.mounted) {
-                    Navigator.pop(context); // Close dialog
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DesignResultScreen(
-                          originalImagePath: imagePath,
-                          prompt: "Modern Design", // Get from TextField in a real implementation
+            SizedBox(
+              height: 120,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _images.length + 1,
+                itemBuilder: (context, index) {
+                  if (index == _images.length) {
+                    // Add Button
+                    return GestureDetector(
+                      onTap: _addMorePhotos,
+                      child: Container(
+                        width: 100,
+                        margin: const EdgeInsets.only(right: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.grey[400]!, style: BorderStyle.solid),
+                        ),
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_a_photo, color: Colors.grey),
+                            SizedBox(height: 4),
+                            Text("Add", style: TextStyle(color: Colors.grey))
+                          ],
                         ),
                       ),
                     );
                   }
+                  // Image Preview
+                  return Container(
+                    width: 120,
+                    margin: const EdgeInsets.only(right: 12),
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(16),  border: Border.all(color: Colors.black12)),
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        kIsWeb
+                            ? Image.network(_images[index].path, fit: BoxFit.cover)
+                            : Image.file(File(_images[index].path), fit: BoxFit.cover),
+                        Positioned(
+                          top: 4, right: 4,
+                          child: CircleAvatar(
+                            radius: 10, backgroundColor: Colors.black54,
+                            child: Text("${index + 1}", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                          ),
+                        )
+                      ],
+                    ),
+                  );
                 },
-                child: const Text(
-                  "Generate 3D Model",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
               ),
             ),
-          ),
-          const SizedBox(height: 10),
-        ],
+            const SizedBox(height: 30),
+
+            // 2. ROOM TYPE
+            const Text("2. Room Type", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10, runSpacing: 10,
+              children: ["Living Room", "Bedroom", "Kitchen", "Bathroom", "Office", "Dining"].map((room) {
+                bool isSelected = _selectedRoomType == room;
+                return ChoiceChip(
+                  label: Text(room),
+                  selected: isSelected,
+                  selectedColor: const Color(0xFFD29E86),
+                  labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
+                  onSelected: (selected) => setState(() => _selectedRoomType = room),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 30),
+
+            // 3. STYLE
+            const Text("3. Design Style", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: ["Modern", "Bohemian", "Scandinavian", "Industrial", "Rustic"].map((style) {
+                  bool isSelected = _selectedStyle == style;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: ChoiceChip(
+                      label: Text(style),
+                      selected: isSelected,
+                      selectedColor: const Color(0xFF2C3E50),
+                      labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
+                      onSelected: (selected) => setState(() => _selectedStyle = style),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 30),
+
+            // 4. PROMPT
+            const Text("4. Custom Details", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _promptController,
+              maxLines: 3,
+              decoration: InputDecoration(
+                hintText: "E.g., I want a big mirror on the left wall and a velvet couch...",
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 40),
+
+            // GENERATE BUTTONS
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 55,
+                    child: ElevatedButton(
+                      onPressed: _canGenerate ? _generateDesign : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _canGenerate ? const Color(0xFFD29E86) : Colors.grey[300],
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      child: const Text("Generate 2D", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SizedBox(
+                    height: 55,
+                    child: ElevatedButton(
+                      onPressed: _images.isNotEmpty ? _generate3DRoom : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _images.isNotEmpty ? Colors.black : Colors.grey[300],
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.view_in_ar, size: 20),
+                          SizedBox(width: 8),
+                          Text("Generate 3D", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }
@@ -164,7 +456,7 @@ class _ScanRoomScreenState extends State<ScanRoomScreen> {
            Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => PromptPage(imagePath: capturedImage.path),
+              builder: (context) => RoomAnalysisScreen(initialImage: capturedImage),
             ),
           );
         }
@@ -189,7 +481,7 @@ class _ScanRoomScreenState extends State<ScanRoomScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => PromptPage(imagePath: pickedFile.path),
+            builder: (context) => RoomAnalysisScreen(initialImage: pickedFile),
           ),
         );
       }
@@ -204,6 +496,35 @@ class _ScanRoomScreenState extends State<ScanRoomScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _handleAutoScan() async {
+    if (!kIsWeb) {
+      var status = await Permission.camera.request();
+      if (!status.isGranted) return;
+    }
+
+    try {
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const CameraScreen(isScanMode: true)),
+      );
+
+      if (result is List<XFile> && result.isNotEmpty) {
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => RoomAnalysisScreen(initialImage: result.first), // Pass first as primary
+          ),
+        );
+        
+        // Note: In RoomAnalysisScreen we could handle the full list if needed, 
+        // but for now we follow the existing pattern.
+      }
+    } catch (e) {
+      debugPrint("Error in auto scan: $e");
     }
   }
 
@@ -255,43 +576,7 @@ class _ScanRoomScreenState extends State<ScanRoomScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Visual Viewfinder
-                Container(
-                  width: double.infinity,
-                  height: isWeb ? 450 : 320,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE0ECE4),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: const Color(0xFFB5C9BD), width: 1.5),
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(40.0),
-                        child: CustomPaint(
-                          painter: CornerPainter(color: const Color(0xFFB5C9BD)),
-                          child: Container(),
-                        ),
-                      ),
-                      const Icon(Icons.track_changes, size: 64, color: Color(0xFFB5C9BD)),
-                      Positioned(
-                        bottom: 24,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.9),
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          child: const Text(
-                            "Position your camera to capture the entire room",
-                            style: TextStyle(fontSize: 13, color: Colors.black54),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 30),
+
 
                 // Action Buttons
                 Row(
@@ -301,20 +586,33 @@ class _ScanRoomScreenState extends State<ScanRoomScreen> {
                         onTap: () => _handleImageAction(ImageSource.camera),
                         child: _buildActionCard(
                           title: "Take Photo",
-                          subtitle: "Capture room",
+                          subtitle: "Single angle",
                           icon: Icons.camera_alt_outlined,
                           bgColor: const Color(0xFFE0ECE4),
                           borderColor: const Color(0xFFB5C9BD),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _HoverableActionCard(
+                        onTap: () => _handleAutoScan(),
+                        child: _buildActionCard(
+                          title: "Auto Scan",
+                          subtitle: "Video-like",
+                          icon: Icons.videocam_outlined,
+                          bgColor: const Color(0xFFE3F2FD),
+                          borderColor: const Color(0xFFBBDEFB),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: _HoverableActionCard(
                         onTap: () => _handleImageAction(ImageSource.gallery),
                         child: _buildActionCard(
                           title: "Upload",
-                          subtitle: "From gallery",
+                          subtitle: "Gallery",
                           icon: Icons.upload_outlined,
                           bgColor: const Color(0xFFFFF3E0),
                           borderColor: const Color(0xFFF2D9C2),

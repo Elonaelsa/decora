@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'scan.dart';
 import 'ai_design.dart';
 import 'shop_furniture.dart';
-import 'profile_screen.dart'; // 1. Import the Profile screen
+import 'profile_screen.dart'; 
+import 'generate_3d_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -165,8 +166,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ), 
                     _HoverableActionCard(
-                      child: _buildAnimatedFeatureCard("Style Gallery", "Explore styles",
-                          Icons.palette_outlined, const Color(0xFFF3E5F5), const Color(0xFFDCC8E0), isWeb),
+                      child: GestureDetector(
+                        onTap: () {
+                           Navigator.push(context, MaterialPageRoute(builder: (context) => const Generate3DScreen()));
+                        },
+                        child: _buildAnimatedFeatureCard("3D Furniture", "Create from text",
+                          Icons.view_in_ar, const Color(0xFFF3E5F5), const Color(0xFFDCC8E0), isWeb),
+                      ),
                     ), 
                     _HoverableActionCard(
                       child: GestureDetector(

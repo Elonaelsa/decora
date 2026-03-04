@@ -5,6 +5,7 @@ import 'scan.dart';
 import 'ai_design.dart';
 import 'shop_furniture.dart';
 import 'signin.dart';
+import 'profile_pages.dart'; // Import the new pages
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -174,17 +175,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Column(
                 children: [
-                  _buildMenuTile(Icons.folder_open_outlined, "My Projects", const Color(0xFFE0ECE4)),
+                  _buildMenuTile(Icons.folder_open_outlined, "My Projects", const Color(0xFFE0ECE4), () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const MyProjectsScreen()));
+                  }),
                   _buildDivider(),
-                  _buildMenuTile(Icons.favorite_border, "Saved Designs", const Color(0xFFF3E5F5)),
+                  _buildMenuTile(Icons.favorite_border, "Saved Designs", const Color(0xFFF3E5F5), () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const SavedDesignsScreen()));
+                  }),
                   _buildDivider(),
-                  _buildMenuTile(Icons.shopping_bag_outlined, "Orders", const Color(0xFFFFF3E0)),
+                  _buildMenuTile(Icons.shopping_bag_outlined, "Orders", const Color(0xFFFFF3E0), () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const OrdersScreen()));
+                  }),
                   _buildDivider(),
-                  _buildMenuTile(Icons.credit_card_outlined, "Payment Methods", const Color(0xFFE3F2FD)),
+                  _buildMenuTile(Icons.credit_card_outlined, "Payment Methods", const Color(0xFFE3F2FD), () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const PaymentMethodsScreen()));
+                  }),
                   _buildDivider(),
-                  _buildMenuTile(Icons.settings_outlined, "Settings", const Color(0xFFF0E6EF)),
+                  _buildMenuTile(Icons.settings_outlined, "Settings", const Color(0xFFF0E6EF), () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
+                  }),
                   _buildDivider(),
-                  _buildMenuTile(Icons.help_outline, "Help & Support", const Color(0xFFF1F4F1)),
+                  _buildMenuTile(Icons.help_outline, "Help & Support", const Color(0xFFF1F4F1), () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const HelpSupportScreen()));
+                  }),
                 ],
               ),
             ),
@@ -226,7 +239,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildMenuTile(IconData icon, String title, Color iconBg) {
+  Widget _buildMenuTile(IconData icon, String title, Color iconBg, VoidCallback onTap) {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       leading: Container(
@@ -236,7 +249,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
       trailing: const Icon(Icons.chevron_right, color: Colors.black26),
-      onTap: () {},
+      onTap: onTap,
     );
   }
 

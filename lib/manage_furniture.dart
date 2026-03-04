@@ -42,30 +42,41 @@ class _ManageFurnitureViewState extends State<ManageFurnitureView> {
 
   @override
   Widget build(BuildContext context) {
-    final List<String> categories = ["Sofas", "Chairs", "Tables", "Beds", "Storage", "Décor"];
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('categories').orderBy('name').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return const Text("Error loading categories");
+        if (snapshot.connectionState == ConnectionState.waiting) return const CircularProgressIndicator();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        // Get categories from Firestore or fallback
+        List<String> categories = snapshot.data!.docs
+          .map((doc) => (doc.data() as Map<String, dynamic>)['name'].toString())
+          .toList();
+
+        if (categories.isEmpty) categories = ["All"]; // Default fallback
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Furniture Items", 
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, fontFamily: 'Georgia')
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Furniture Items", 
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, fontFamily: 'Georgia')
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _addFurnitureDialog(context, categories),
+                  icon: const Icon(Icons.add),
+                  label: const Text("Add New Item"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD29E86), 
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ],
             ),
-            ElevatedButton.icon(
-              onPressed: () => _addFurnitureDialog(context, categories),
-              icon: const Icon(Icons.add),
-              label: const Text("Add New Item"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFD29E86), 
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ],
-        ),
         const SizedBox(height: 24),
         
         TextField(
@@ -141,9 +152,18 @@ class _ManageFurnitureViewState extends State<ManageFurnitureView> {
                     ),
                     title: Text(data['name'] ?? 'No Name Set', style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text("Shop: ${data['shopName'] ?? 'General'} | Price: \$${data['price'] ?? '0'}"),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: () => _confirmDelete(context, item.id, data['name']),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                          onPressed: () => _editFurnitureDialog(context, item.id, data, categories),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          onPressed: () => _confirmDelete(context, item.id, data['name']),
+                        ),
+                      ],
                     ),
                   ),
                 );
@@ -152,6 +172,8 @@ class _ManageFurnitureViewState extends State<ManageFurnitureView> {
           },
         ),
       ],
+    );
+      }
     );
   }
 
@@ -178,10 +200,10 @@ class _ManageFurnitureViewState extends State<ManageFurnitureView> {
   void _addFurnitureDialog(BuildContext context, List<String> categories) {
     final name = TextEditingController();
     final price = TextEditingController();
+    final imageUrlController = TextEditingController();
     String selectedCategory = categories[0];
-    String? selectedShopName; // Store selected shop
-    XFile? pickedImage; 
-    bool isUploading = false;
+    String? selectedShopName; 
+    bool isSaving = false;
 
     showDialog(
       context: context,
@@ -194,39 +216,18 @@ class _ManageFurnitureViewState extends State<ManageFurnitureView> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  GestureDetector(
-                    onTap: () async {
-                      final ImagePicker picker = ImagePicker();
-                      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-                      if (image != null) {
-                        setDialogState(() => pickedImage = image);
-                      }
-                    },
-                    child: Container(
-                      height: 120,
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(15),
-                        border: Border.all(color: Colors.black12)
-                      ),
-                      child: pickedImage != null 
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(15),
-                            child: kIsWeb 
-                              ? Image.network(pickedImage!.path, fit: BoxFit.cover)
-                              : Image.file(File(pickedImage!.path), fit: BoxFit.cover),
-                          )
-                        : const Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.add_a_photo_outlined, color: Colors.grey, size: 40),
-                              Text("Select Image", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                            ],
-                          ),
+                  // Image URL Input
+                  TextField(
+                    controller: imageUrlController, 
+                    decoration: const InputDecoration(
+                      labelText: "Image URL",
+                      hintText: "https://example.com/image.jpg",
+                      suffixIcon: Icon(Icons.link)
                     ),
+                    onChanged: (val) => setDialogState(() {}), // Update preview
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 10),
+
                   TextField(controller: name, decoration: const InputDecoration(labelText: "Furniture Name")),
                   const SizedBox(height: 10),
                   TextField(
@@ -236,7 +237,7 @@ class _ManageFurnitureViewState extends State<ManageFurnitureView> {
                   ),
                   const SizedBox(height: 20),
                   
-                  // NEW: SHOP SELECTION DROPDOWN
+                  // SHOP SELECTION DROPDOWN
                   StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance.collection('shops').snapshots(),
                     builder: (context, shopSnapshot) {
@@ -276,29 +277,23 @@ class _ManageFurnitureViewState extends State<ManageFurnitureView> {
             actions: [
               TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
               ElevatedButton(
-                onPressed: isUploading ? null : () async {
-                  // Ensure name, price, and SHOP are provided
+                onPressed: isSaving ? null : () async {
                   if (name.text.isNotEmpty && price.text.isNotEmpty && selectedShopName != null) {
-                    setDialogState(() => isUploading = true);
+                    setDialogState(() => isSaving = true);
                     
                     try {
-                      String? finalUrl;
-                      if (pickedImage != null) {
-                        finalUrl = await _uploadImage(pickedImage!);
-                      }
-
                       await FirebaseFirestore.instance.collection('furniture').add({
                         'name': name.text, 
                         'price': price.text,
                         'category': selectedCategory,
-                        'shopName': selectedShopName, // Saving the selected shop name
-                        'imageUrl': finalUrl ?? "", 
+                        'shopName': selectedShopName,
+                        'imageUrl': imageUrlController.text, // Use URL directly
                         'createdAt': FieldValue.serverTimestamp(),
                       });
                       
                       if (context.mounted) Navigator.pop(context);
                     } catch (e) {
-                      setDialogState(() => isUploading = false);
+                      setDialogState(() => isSaving = false);
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
                     }
                   } else if (selectedShopName == null) {
@@ -308,9 +303,121 @@ class _ManageFurnitureViewState extends State<ManageFurnitureView> {
                   }
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD29E86)),
-                child: isUploading 
+                child: isSaving 
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Text("Add to System"),
+              )
+            ],
+          );
+        },
+      ),
+    );
+  }
+  void _editFurnitureDialog(BuildContext context, String docId, Map<String, dynamic> data, List<String> categories) {
+    final name = TextEditingController(text: data['name']);
+    final price = TextEditingController(text: data['price']?.toString());
+    final imageUrlController = TextEditingController(text: data['imageUrl']); // Pre-fill URL
+    String selectedCategory = categories.contains(data['category']) ? data['category'] : categories[0];
+    String? selectedShopName = data['shopName'];
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text("Edit Item"),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Image URL Input
+                  TextField(
+                    controller: imageUrlController,
+                    decoration: const InputDecoration(
+                      labelText: "Image URL",
+                      hintText: "Enter new image URL",
+                      suffixIcon: Icon(Icons.edit)
+                    ),
+                    onChanged: (val) => setDialogState(() {}), // Refresh preview
+                  ),
+                  const SizedBox(height: 10),
+
+                  TextField(controller: name, decoration: const InputDecoration(labelText: "Furniture Name")),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: price, 
+                    decoration: const InputDecoration(labelText: "Price"), 
+                    keyboardType: TextInputType.number
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // SHOP SELECTION DROPDOWN
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance.collection('shops').snapshots(),
+                    builder: (context, shopSnapshot) {
+                      if (!shopSnapshot.hasData) return const LinearProgressIndicator();
+                      
+                      var shopItems = shopSnapshot.data!.docs.map((doc) {
+                        String sName = doc['name'];
+                        return DropdownMenuItem(value: sName, child: Text(sName));
+                      }).toList();
+
+                      return DropdownButtonFormField<String>(
+                        value: selectedShopName,
+                        hint: const Text("Select Shop"),
+                        decoration: InputDecoration(
+                          labelText: "Assign to Shop",
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        items: shopItems,
+                        onChanged: (value) => setDialogState(() => selectedShopName = value),
+                      );
+                    },
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  DropdownButtonFormField<String>(
+                    value: selectedCategory,
+                    decoration: InputDecoration(
+                      labelText: "Category",
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                    onChanged: (val) => setDialogState(() => selectedCategory = val!),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+              ElevatedButton(
+                onPressed: isSaving ? null : () async {
+                  if (name.text.isNotEmpty && price.text.isNotEmpty) {
+                    setDialogState(() => isSaving = true);
+                    
+                    try {
+                      await FirebaseFirestore.instance.collection('furniture').doc(docId).update({
+                        'name': name.text, 
+                        'price': price.text,
+                        'category': selectedCategory,
+                        'shopName': selectedShopName, 
+                        'imageUrl': imageUrlController.text, // Save URL
+                        'updatedAt': FieldValue.serverTimestamp(),
+                      });
+                      
+                      if (context.mounted) Navigator.pop(context);
+                    } catch (e) {
+                      setDialogState(() => isSaving = false);
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+                    }
+                  } 
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD29E86)),
+                child: isSaving 
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text("Save Changes"),
               )
             ],
           );
